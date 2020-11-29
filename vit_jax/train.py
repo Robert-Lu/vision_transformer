@@ -16,6 +16,7 @@ import functools
 import glob
 import os
 import time
+import pdb
 
 from clu import metric_writers
 
@@ -72,6 +73,8 @@ def make_update_fn(vit_fn, accum_steps):
 
 
 def main(args):
+  pdb.set_trace()
+  
   logdir = os.path.join(args.logdir, args.name)
   logger = logging.setup_logger(logdir)
   logger.info(args)
