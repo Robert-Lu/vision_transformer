@@ -33,8 +33,8 @@ DATASET_PRESETS = {
     'cifar10': {
         'train': 'train[:98%]',
         'test': 'test',
-        'resize': 384,
-        'crop': 384,
+        'resize': 224,
+        'crop': 224,
         'total_steps': 10_000,
     },
     'cifar100': {

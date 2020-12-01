@@ -41,6 +41,11 @@ def argparser(known_models, known_datasets):
       help='Directory where --logdir and --output should be stored. This '
       'directory can be on any filesystem accessible through by tf.io.gfile',
   )
+  parser.add_argument(
+      '--pretrained',
+      default=None,
+      help='Where to find the fine tuned model checkpoint.',
+  )
 
   parser.add_argument(
       '--dataset',

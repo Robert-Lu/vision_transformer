@@ -70,6 +70,7 @@ def make_update_fn(vit_fn, accum_steps):
 
   return update_fn
 
+import pdb
 
 def main(args):
   logdir = os.path.join(args.logdir, args.name)
@@ -109,12 +110,19 @@ def main(args):
       # Discard the "num_local_devices" dimension for initialization.
       [(batch['image'].shape[1:], batch['image'].dtype.name)])
 
-  pretrained_path = os.path.join(args.vit_pretrained_dir, f'{args.model}.npz')
-  params = checkpoint.load_pretrained(
-      pretrained_path=pretrained_path,
-      init_params=params,
-      model_config=models.CONFIGS[args.model],
-      logger=logger)
+  if args.pretrained is not None:
+    try:
+      pretrained_path = os.path.join(args.vit_pretrained_dir, f'{args.pretrained}')
+      params = checkpoint.load_pretrained(
+          pretrained_path=pretrained_path,
+          init_params=params,
+          model_config=models.CONFIGS[args.model],
+          logger=logger)
+    except:
+      logger.warning("pretrained not loaded, as error occured.")
+  else:
+    logger.info("Pretrained not loaded, as --pretrained NOT SET.")
+
 
   # pmap replicates the models over all TPUs/GPUs
   vit_fn_repl = jax.pmap(VisionTransformer.call)
