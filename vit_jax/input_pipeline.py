@@ -19,6 +19,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import tensorflow_datasets as tfds
 
+import pdb
 import sys
 if sys.platform != 'darwin':
   # A workaround to avoid crash because tfds may open to many files.
@@ -33,8 +34,8 @@ DATASET_PRESETS = {
     'cifar10': {
         'train': 'train[:98%]',
         'test': 'test',
-        'resize': 224,
-        'crop': 224,
+        'resize': 384,
+        'crop': 384,
         'total_steps': 10_000,
     },
     'cifar100': {
@@ -60,7 +61,9 @@ def get_dataset_info(dataset, split):
   num_classes = data_builder.info.features['label'].num_classes
   return {
       'num_examples': num_examples,
-      'num_classes': num_classes
+      'num_classes': num_classes,
+      'info': data_builder.info,
+      'image_type': data_builder.info.features['image']
   }
 
 
@@ -73,7 +76,10 @@ def get_data(*,
              shuffle_buffer=MAX_IN_MEMORY,
              tfds_data_dir=None,
              tfds_manual_dir=None,
-             inception_crop=True):
+             inception_crop=True,
+             include_original=False,
+             preprocess_train_dataset=True,
+             no_shuffle=False):
   """Returns dataset for training/eval.
 
   Args:
@@ -112,7 +118,9 @@ def get_data(*,
 
   def _pp(data):
     im = decoder(data['image'])
-    if mode == 'train':
+    if include_original:
+      ori = decoder(data['image'])
+    if mode == 'train' and preprocess_train_dataset: # CHANGED
       if inception_crop:
         channels = im.shape[-1]
         begin, size, _ = tf.image.sample_distorted_bounding_box(
@@ -135,10 +143,13 @@ def get_data(*,
       im = tf.image.resize(im, [crop_size, crop_size])
     im = (im - 127.5) / 127.5
     label = tf.one_hot(data['label'], dataset_info['num_classes'])  # pylint: disable=no-value-for-parameter
-    return {'image': im, 'label': label}
+    if include_original:
+      return {'image': im, 'label': label, 'ori': ori}
+    else:
+      return {'image': im, 'label': label}
 
   data = data.repeat(repeats)
-  if mode == 'train':
+  if mode == 'train' and not no_shuffle:
     data = data.shuffle(min(dataset_info['num_examples'], shuffle_buffer))
   data = data.map(_pp, tf.data.experimental.AUTOTUNE)
   data = data.batch(batch_size, drop_remainder=True)
@@ -159,6 +170,10 @@ def get_data(*,
   num_devices = jax.local_device_count()
 
   def _shard(data):
+    if include_original:
+      ori_shape = dataset_info['image_type'].shape
+      data['ori'] = tf.reshape(data['ori'],
+                                [num_devices, -1, ori_shape[0], ori_shape[1], 3])
     data['image'] = tf.reshape(data['image'],
                                [num_devices, -1, crop_size, crop_size, 3])
     data['label'] = tf.reshape(data['label'],

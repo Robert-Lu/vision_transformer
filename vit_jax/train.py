@@ -168,6 +168,24 @@ def main(args):
       range(1, total_steps + 1),
       input_pipeline.prefetch(ds_train, args.prefetch), lr_iter):
 
+    # Run eval step
+    if ((args.eval_every and step % args.eval_every == 0) or
+        (step == total_steps)):
+
+      accuracy_test = np.mean([
+          c for batch in input_pipeline.prefetch(ds_test, args.prefetch)
+          for c in (
+              np.argmax(vit_fn_repl(opt_repl.target, batch['image']),
+                        axis=2) == np.argmax(batch['label'], axis=2)).ravel()
+      ])
+      lr = float(lr_repl[0])
+      logger.info(f'Step: {step} '
+                  f'Learning rate: {lr:.7f}, '
+                  f'Test accuracy: {accuracy_test:0.5f}')
+      writer.write_scalars(step, dict(accuracy_test=accuracy_test, lr=lr))
+      copyfiles(glob.glob(f'{logdir}/*'))
+      pdb.set_trace()
+
     opt_repl, loss_repl, update_rngs = update_fn_repl(
         opt_repl, lr_repl, batch, update_rngs)
 
