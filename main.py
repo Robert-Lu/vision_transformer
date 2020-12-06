@@ -27,28 +27,46 @@ from vit_jax import momentum_clip
 
 from utils.plt_helper import *
 
-#@markdown Select whether you would like to store data in your personal drive.
-#@markdown
-#@markdown If you select **yes**, you will need to authorize Colab to access
-#@markdown your personal drive
-#@markdown
-#@markdown If you select **no**, then any changes you make will diappear when
-#@markdown this Colab's VM restarts after some time of inactivity...
-use_gdrive = 'yes'  #@param ["yes", "no"]
+# Helper functions for images.
 
-if use_gdrive == 'yes':
-  from google.colab import drive
-  drive.mount('/gdrive')
-  root = '/gdrive/My Drive/ViT_AdvAttack'
-  import os
-  if not os.path.isdir(root):
-    os.mkdir(root)
-  os.chdir(root)
-  print(f'\nChanged CWD to "{root}"')
-else:
-  from IPython import display
-  display.display(display.HTML(
-      '<h1 style="color:red">CHANGES NOT PERSISTED</h1>'))
+labelnames = dict(
+    # https://www.cs.toronto.edu/~kriz/cifar.html
+    cifar10=('airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck'),
+    # https://www.cs.toronto.edu/~kriz/cifar.html
+    cifar100=('apple', 'aquarium_fish', 'baby', 'bear', 'beaver', 'bed', 'bee', 'beetle', 'bicycle', 'bottle', 'bowl', 'boy', 'bridge', 'bus', 'butterfly', 'camel', 'can', 'castle', 'caterpillar', 'cattle', 'chair', 'chimpanzee', 'clock', 'cloud', 'cockroach', 'couch', 'crab', 'crocodile', 'cup', 'dinosaur', 'dolphin', 'elephant', 'flatfish', 'forest', 'fox', 'girl', 'hamster', 'house', 'kangaroo', 'computer_keyboard', 'lamp', 'lawn_mower', 'leopard', 'lion', 'lizard', 'lobster', 'man', 'maple_tree', 'motorcycle', 'mountain', 'mouse', 'mushroom', 'oak_tree', 'orange', 'orchid', 'otter', 'palm_tree', 'pear', 'pickup_truck', 'pine_tree', 'plain', 'plate', 'poppy', 'porcupine', 'possum', 'rabbit', 'raccoon', 'ray', 'road', 'rocket', 'rose', 'sea', 'seal', 'shark', 'shrew', 'skunk', 'skyscraper', 'snail', 'snake', 'spider', 'squirrel', 'streetcar', 'sunflower', 'sweet_pepper', 'table', 'tank', 'telephone', 'television', 'tiger', 'tractor', 'train', 'trout', 'tulip', 'turtle', 'wardrobe', 'whale', 'willow_tree', 'wolf', 'woman', 'worm')
+)
+
+def make_label_getter(dataset):
+    """Returns a function converting label indices to names."""
+    def getter(label):
+        if dataset in labelnames:
+            return labelnames[dataset][label]
+        return f'label={label}'
+    return getter
+
+def show_img(img, ax=None, title=None):
+    """Shows a single image."""
+    if ax is None:
+        ax = plt.gca()
+    ax.imshow(img[...])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    if title:
+        ax.set_title(title)
+
+def show_img_grid(imgs, titles, titles_2=None):
+    """Shows a grid of images."""
+    n = int(np.ceil(len(imgs)**.5))
+    _, axs = plt.subplots(n, n, figsize=(3 * n, 3 * n))
+    if titles_2 is None:
+        for i, (img, title) in enumerate(zip(imgs, titles)):
+            img = (img + 1) / 2  # Denormalize
+            show_img(img, axs[i // n][i % n], title)
+    else:
+        for i, (img, title, title_2) in enumerate(zip(imgs, titles, titles_2)):
+            img = (img + 1) / 2  # Denormalize
+            show_img(img, axs[i // n][i % n], f"{title} > {title_2}")
+
 
 
 # Make sure tf does not allocate gpu memory.
@@ -59,10 +77,21 @@ parser = flags.argparser(models.KNOWN_MODELS.keys(),
 
 args = parser.parse_args()
 
-# python3 -m vit_jax.train --name ViT-B_16-cifar10_`date +%F_%H%M%S` 
-# --model ViT-B_16 --logdir /tmp/vit_logs --dataset cifar10 
-# --accum_steps 8 --batch 32 --batch_eval 32 --eval_every 2000 --progress_every 100 
-# --shuffle_buffer=2000 --warmup_steps 50 --output=./ViT-B_16.npz  --pretrained ViT-B_16.npz
+# Overwrite args
+# args.name = "ViT-B_16-cifar10_TEST_`date +%F_%H%M%S"
+args.model = "ViT-B_16"
+args.logdir = "/tmp/vit_logs"
+args.dataset = "cifar10"
+args.accum_steps = 8
+args.batch = 32
+args.batch_eval = 32
+args.eval_every = 2000
+args.progress_every = 100
+args.shuffle_buffer = 2000
+args.warmup_steps = 50
+args.output = "./ViT-B_16.npz"
+args.pretrained = "ViT-B_16_cifar10.npz"
+
 
 logdir = os.path.join(args.logdir, args.name)
 logger = logging.setup_logger(logdir)
@@ -86,45 +115,68 @@ ds_train = input_pipeline.get_data(
     include_original=True,
     preprocess_train_dataset=True,
     no_shuffle=True)
-batch = next(iter(ds_train))
+# batch = next(iter(ds_train))
 gen_train = iter(ds_train)
+
+ds_test = input_pipeline.get_data(
+    dataset=args.dataset,
+    mode='test',
+    repeats=1,
+    batch_size=args.batch_eval,
+    tfds_data_dir=args.tfds_data_dir,
+    tfds_manual_dir=args.tfds_manual_dir,
+    include_original=True)
+logger.info(ds_test)
 logger.info('=' * 50)
 
 
 import pdb
 # Build VisionTransformer architecture
 model = models.KNOWN_MODELS[args.model]
-VisionTransformer = model.partial(num_classes=1000)
+VisionTransformer = model.partial(num_classes=dataset_info['num_classes'])
 # VisionTransformer = model.partial(num_classes=dataset_info['num_classes'])
-_, params = VisionTransformer.init_by_shape(
-    jax.random.PRNGKey(0),
-    # Discard the "num_local_devices" dimension for initialization.
-    [(batch['image'].shape[1:], batch['image'].dtype.name)])
-logger.info(f"VisionTransformer INIT {VisionTransformer}")
-logger.info('=' * 50)
+pretrained_path = os.path.join(args.vit_pretrained_dir, f'{args.pretrained}')
+params = checkpoint.load(pretrained_path)
+params['pre_logits'] = {}  # Need to restore empty leaf for Flax.
 
-if args.pretrained is not None:
-    try:
-        pretrained_path = os.path.join(args.vit_pretrained_dir, f'{args.pretrained}')
-        params = checkpoint.load_pretrained(
-            pretrained_path=pretrained_path,
-            init_params=params,
-            model_config=models.CONFIGS[args.model],
-            logger=logger)
-        params['pre_logits'] = {}
-    except:
-        logger.warning("pretrained not loaded, as error occured.")
-else:
-    logger.info("Pretrained not loaded, as --pretrained NOT SET.")
-logger.info('=' * 50)
+# _, params = VisionTransformer.init_by_shape(
+#     jax.random.PRNGKey(0),
+#     # Discard the "num_local_devices" dimension for initialization.
+#     [(batch['image'].shape[1:], batch['image'].dtype.name)])
+# logger.info(f"VisionTransformer INIT {VisionTransformer}")
+# logger.info('=' * 50)
 
-images = batch["image"]
-labels = batch["label"]
+# if args.pretrained is not None:
+#     try:
+#         pretrained_path = os.path.join(args.vit_pretrained_dir, f'{args.pretrained}')
+#         params = checkpoint.load_pretrained(
+#             pretrained_path=pretrained_path,
+#             init_params=params,
+#             model_config=models.CONFIGS[args.model],
+#             logger=logger)
+#         params['pre_logits'] = {}
+#     except:
+#         logger.warning("pretrained not loaded, as error occured.")
+# else:
+#     logger.info("Pretrained not loaded, as --pretrained NOT SET.")
+# logger.info('=' * 50)
 
-y = VisionTransformer.call(params, images[0])
-print(y)
-# for d in gen_train:
-#     print(d)
-#     ori = d["ori"][0][0]
-#     image = d["image"][0][0]
-#     show_2_image(ori, image, block=True)
+# batch = next(iter(ds_test.as_numpy_iterator()))
+
+# for i in range((args.batch - 1) // 9 + 1):
+
+#     images, labels = batch['image'][0][i*9:i*9+9], batch['label'][0][i*9:i*9+9]
+#     titles_train = map(make_label_getter(args.dataset), labels.argmax(axis=1))
+
+#     logits = VisionTransformer.call(params, images)
+#     preds = flax.nn.softmax(logits)
+#     titles_test = map(make_label_getter(args.dataset), preds.argmax(axis=1))
+#     show_img_grid(images, titles_train, titles_test)
+#     plt.show()
+
+#     print(preds)
+
+ds_test_iter = iter(ds_test)
+
+for test_batch in ds_test_iter:
+    pass

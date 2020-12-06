@@ -19,14 +19,18 @@ def argparser(known_models, known_datasets):
   parser = argparse.ArgumentParser(description='Fine-tune ViT-M model.')
   parser.add_argument(
       '--name',
-      required=True,
+      required=False,
+      default="default_name",
       help='Name of this run. Used for monitoring and checkpointing.')
   parser.add_argument(
       '--model',
       choices=list(known_models),
       help='Which variant to use; ViT-M gives best results.')
   parser.add_argument(
-      '--logdir', required=True, help='Where to log training info (small).')
+      '--logdir', 
+      required=False, 
+      default="default_logdir",
+      help='Where to log training info (small).')
   parser.add_argument(
       '--vit_pretrained_dir',
       default='.',
@@ -50,7 +54,8 @@ def argparser(known_models, known_datasets):
   parser.add_argument(
       '--dataset',
       choices=list(known_datasets),
-      required=True,
+      required=False,
+      default="cifar10",
       help='Choose the dataset. It should be easy to add your own! '
       'Do not forget to set --tfds_manual_dir if necessary.')
   parser.add_argument(
