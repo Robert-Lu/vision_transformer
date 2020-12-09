@@ -52,6 +52,13 @@ DATASET_PRESETS = {
         'crop': 384,
         'total_steps': 20_000,
     },
+    'imagenet_v2': {
+        'train': 'train[:99%]',
+        'test': 'test',
+        'resize': 384,
+        'crop': 384,
+        'total_steps': 20_000,
+    },
 }
 
 
